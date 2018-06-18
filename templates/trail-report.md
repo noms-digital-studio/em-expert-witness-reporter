@@ -1,20 +1,29 @@
-#TRAIL REPORT
+TRAIL REPORT
+============
+**Report Date:** {{reportDate}}
 
-Report Date: {{date}}
+**Offender Details:** {{details.firstName}} {{details.lastName}} ({{details.offenderId}})
+**Offender Program:** {{details.program.type}}
 
-Offender Details: {{details.firstName}} {{details.lastName}} ({{offenderId}}), Offender Program: {{details.source.program_type}}
-
-##Trailing Map:
+Trailing Map
+------------
 ![GPS Tracking device position data on a map]({{ mapTilePath }})
 
-From: {{reportFrom}} To: {{reportTo}}  
-Range Selected: Custom
+**From:** {{reportFromDate}} **To:** {{reportToDate}}  
+**Range Selected:** Custom
 
-##Zones:
+Zones
+-----
+| # | Name | Limitation | Type | Grace Time | Curfew | BLP |
+| - | ---- | ---------- | ---- | ---------- | ------ | --- |
+{{#each zonesReport}}
+| {{ id }} | {{ name }} | {{ limitation }} | {{ type }} | {{ graceTime }} | {{ curfew }} | {{ blp }} |
+{{/each}}
 
-##Events:
+Events
+------
 | # | Event Time | Message | Status | Vio. | H. |
 | - | ---------- | ------- | ------ | ---- | -- |
-{{#each events}}
-| {{ event_id }} | {{ datetime }} | {{ description }} | {{ speed }} | {{ journeyDistance }} | {{ journeyTime }} |
+{{#each eventsReport}}
+| {{ id }} | {{ datetime }} | {{ message }} | {{ status }} | {{ violation }} | {{ home }} |
 {{/each}}

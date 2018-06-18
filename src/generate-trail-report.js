@@ -1,233 +1,230 @@
 const fs = require('fs');
 const moment = require('moment');
-const polyline = require('polyline');
-const qs = require('qs');
 const MDtoPDF = require('markdown-pdf');
 const Handlebars = require('handlebars');
 const request = require('superagent');
-const geolib = require('geolib');
 
-const EXTRACT_DATE_FORMAT = 'DD/MM/YYYY_HH:mm:ss';
+const helpers = require('./helpers');
+
+const SORTABLE_DATE_FORMAT = 'YYYYMMDDHHmmss';
+const REPORT_DATE_FORMAT = 'DD MMM YYYY';
+const REPORT_TIME_FORMAT = 'HH:mm';
+const EVENT_DATE_FORMAT = 'DD/MM/YYYY HH:mm';
 
 const INCLUDE_IMAGES = true;
 
-const GOOGLE_STATIC_MAP_URL = 'https://maps.googleapis.com/maps/api/staticmap';
-const GOOGLE_STATIC_MAP_KEY = 'AIzaSyAj8cbl551OZ6uhhVH-oXIuAI-zxWwqpHA';
-const GOOGLE_STATIC_MAP_OPTIONS = {
-  size:'640x640',
-  scale: 2,
-  format: 'png',
-  maptype: 'roadmap',
-};
+const extractSubjectDetails = opts => model => {
+  model.details = {
+    offenderId: model.details.offender_id,
+    firstName: model.details.first_name,
+    middleName: model.details.middle_name,
+    lastName: model.details.last_name,
+    gender: model.details.gender,
+    address: {
+      line1: model.details.address,
+      city: model.details.city_name,
+      country: model.details.country_id,
+      postcode: model.details.zip_code,
+      phones: {
+        home: model.details.home_phone,
+        work: model.details.work_phone,
+      },
+    },
 
-const setMapBoundaries = (prop, mr) => (viewmodel) => {
-  let first = mr[0];
-  let mapBoundaries = mr.reduce((output, input) => {
-    if (input.longitude > output.top) {
-      output.top = input.longitude;
-    }
-    if (input.longitude < output.bottom) {
-      output.bottom = input.longitude;
-    }
-    if (input.latitude > output.right) {
-      output.right = input.latitude;
-    }
-    if (input.latitude < output.left) {
-      output.left = input.latitude;
-    }
-
-    return output;
-  }, { top: first.longitude, left: first.latitude, bottom: first.longitude, right: first.latitude });
-
-  viewmodel[`${prop}`] =  {
-    top: mapBoundaries.top,
-    bottom: mapBoundaries.bottom,
-    left: mapBoundaries.left,
-    right: mapBoundaries.right,
-    center: {
-      latitude: mapBoundaries.bottom + (mapBoundaries.top - mapBoundaries.bottom),
-      longitude: mapBoundaries.left + (mapBoundaries.right - mapBoundaries.left),
-    }
+    program: {
+      type: model.details.program_type,
+      start: model.details.program_start,
+      end: model.details.program_end,
+    },
   };
 
-  return viewmodel;
-};
+  return model;
+}
 
-const recordObservation = (prop, record) => (viewmodel) => {
-  if (record.length > 0) {
-    viewmodel[`${prop}Observed`] = {
-      start: record[0].datetime,
-      finish: record[record.length - 1].datetime
-    };
+const extractZoneList = opts => model => {
+  let temp = {};
+  model.zones.forEach(x => {
+    if (
+      (temp[x.zone_name] && x.version_no > temp[x.zone_name].version_no) ||
+      moment(x.version_start).diff(moment(opts.reportTo)) > 0 ||
+      moment(x.version_end).diff(moment(opts.reportFrom)) < 0
+    ) {
+      return;
+    }
 
-    viewmodel[`${prop}Evidence`] = record.map((x) => ({ datetime: x.datetime, status: x.status }));
-  }
-
-  return viewmodel;
-};
-
-const setMapTileUrl = (prop, record) => (viewmodel) => {
-  let route = polyline.encode(viewmodel.routeDetails.map((x) => x.location), 5);
-  let query = qs.stringify(Object.assign({}, GOOGLE_STATIC_MAP_OPTIONS, {
-    path: `color:blue|weight:5|enc:${route}`,
-    key: GOOGLE_STATIC_MAP_KEY
-  }));
-
-  viewmodel[prop] = `${GOOGLE_STATIC_MAP_URL}?${query}`;
-
-  return viewmodel;
-};
-
-const calculateDistance = (a, b) => a && b ? geolib.getDistance(a, b) : 0; //geolib.convertUnit('mi',  + ' miles';
-const calculateDirection = (a, b) => a && b ? geolib.getBearing(a, b) : undefined;
-const calculateSpeed = (a, b) => a && b ? geolib.getSpeed(a, b, {unit: 'mph'}) : 0;
-const calculateTimeSpan = (a, b) => moment.duration(a && b ? (b - a) : 0).humanize();
-
-const setLog = (prop, record) => (viewmodel) => {
-  let records = record.filter((x, i) => {
-      let lastRecord = record[i - 1];
-      let nextRecord = record[i + 1];
-
-      let lastRecordSame = lastRecord && lastRecord.latitude === x.latitude && lastRecord.longitude === x.longitude || false;
-      let nextRecordSame = nextRecord && nextRecord.latitude === x.latitude && nextRecord.longitude === x.longitude || false;
-
-      return !(lastRecordSame && nextRecordSame);
+    temp[x.zone_name] = x;
   });
 
-  let firstRecord = records[0];
-  viewmodel[prop] = records.map((x, i) => {
-      let lastRecord = records[i - 1];
-      let nextRecord = records[i + 1];
+  model.zonesReport = [];
+  for (var id in temp) {
+    let x = temp[id];
 
-      return {
-        datetime: moment(x.datetime).format('DD/MM/YYYY HH:mm:ss'),
-        location: [ x.latitude, x.longitude ],
-        altitude: x.altitude,
-        speed: calculateSpeed(lastRecord, x),
-        numberOfSatelites: x.numberOfSatelites || 0,
-        generatedBy: x.generatedBy,
-        lbsAccuracy: x.lbsAccuracy,
-        to: {
-          distance: calculateDistance(lastRecord, x),
-          direction: calculateDirection(lastRecord, x),
-        },
-        from: {
-          distance: calculateDistance(x, nextRecord),
-          direction: calculateDirection(x, nextRecord),
-        },
-        journeyTime: calculateTimeSpan(firstRecord.datetime, x.datetime),
-        timeSinceLastUpdate: calculateTimeSpan(lastRecord ? lastRecord.datetime : undefined, x.datetime),
-        journeyDistance: calculateDistance(firstRecord, x),
-        distanceSinceLastUpdate: calculateDistance(lastRecord, x),
-      };
-    }).filter((x) => !(x.distanceSinceLastUpdate > 9999)).slice(0, records.length - 28);
+    model.zonesReport.push({
+      id: x.zone_id,
+      name: x.zone_name,
+      limitation: x.zone_rule,
+      type: x.zone_type,
+      graceTime: x.grace_time,
+      curfew: model.timeFrames.filter(z => z.zone_id === x.zone_id).length > 0 ? 'V' : undefined,
+      blp: x.blp                  // TODO: what is BLP?
+    });
+  }
 
-  return viewmodel;
+  return model;
 };
 
-const generateViewModel = (opts) =>
-  (model) => [
-      recordObservation('strapTamper', model.strapTamperRecord ),
-      recordObservation('bodyTamper', model.bodyTamperRecord ),
-      recordObservation('exclusionZoneViolation', model.exclusionZoneViolation ),
-      recordObservation('inclusionZoneViolation', model.inclusionZoneViolation ),
-      recordObservation('trackerInCharger', model.trackerInCharger ),
-      recordObservation('homeCurfewViolation', model.homeCurfewViolation ),
+const extractEventList = opts => model => {
+  let temp = {};
+  model.events.forEach(x => {
+    if (
+      moment(x.event_time).diff(moment(opts.reportTo)) >= 0 ||
+      moment(x.event_time).diff(moment(opts.reportFrom)) <= 0
+    ) {
+      return;
+    }
 
-      setMapBoundaries('mapBoundaries', model.movementRecord),
+    temp[x.event_id] = x;
+  });
 
-      setLog('routeDetails', model.movementRecord),
+  model.eventsReport = [];
+  for (var id in temp) {
+    let x = temp[id];
 
-      setMapTileUrl('mapTileUrl'),
-    ]
-    .reduce((viewmodel, fn) => fn(viewmodel), {
-      urn: model.offenderId,
-      serialNumber: model.serialNumber,
-      date: moment().format('Do MMM YYYY'),
-      policeForce: 'A Police Force',
-      policeOfficer: 'DC 1007 SMITHS',
-      sentDate: moment().format('Do MMM YYYY'),
-      reportStartDate: moment(model.movementRecord[0].datetime).format('Do MMM'),
-      reportStartTime: moment(model.movementRecord[0].datetime).format('HHmm[hrs]'),
-      reportEndDate: moment(model.movementRecord[model.movementRecord.length-1].datetime).format('Do MMM'),
-      reportEndTime: moment(model.movementRecord[model.movementRecord.length-1].datetime).format('HHmm[hrs]'),
+    model.eventsReport.push({
+      id: x.event_id,
+      datetime: moment(x.event_time).format(EVENT_DATE_FORMAT),
+      message: x.description,
+      status: x.action_status,
+      violation: undefined, // TODO: how do we determine violation?
+      home: undefined, // TODO: what is H.
     });
+  }
 
-const generateReport = (opts) => (viewmodel) =>
+  return model;
+};
+
+const addReportDetails = opts => model => {
+  model.reportDate = moment().format(REPORT_DATE_FORMAT);
+  model.reportFromDate = opts.reportFrom.format(REPORT_DATE_FORMAT);
+  model.reportFromTime = opts.reportFrom.format(REPORT_TIME_FORMAT);
+  model.reportToDate = opts.reportTo.format(REPORT_DATE_FORMAT);
+  model.reportToTime = opts.reportTo.format(REPORT_TIME_FORMAT);
+
+  return model;
+};
+
+const generateTrailReport = template => model =>
   new Promise((resolve, reject) => {
-    fs.readFile(opts.source, 'utf8', (err, data) => {
+    let filePath = `./templates/${template}.md`
+    console.log(new Date(), 'READING TEMPLATE:', filePath);
+
+    fs.readFile(filePath, 'utf8', (err, data) => {
       if (err) {
         return reject(err);
       }
 
       var template = Handlebars.compile(data);
 
-      resolve(template(viewmodel));
+      resolve(template(model));
     });
   });
 
-const generateMapImagery = (opts) => (viewmodel) => {
-  const stream = fs.createWriteStream(opts.target);
-
-  console.log(`MAP TILE URL: ${viewmodel.mapTileUrl}`);
-  const req = request.get(viewmodel.mapTileUrl);
-
-  return new Promise((resolve, reject) => {
+const retrieveMapImagery = fileName => model =>
+  new Promise((resolve, reject) => {
     if (!INCLUDE_IMAGES) {
-      return resolve(viewmodel);
+      return resolve(model);
     }
 
-    stream.on('finish', () => {
-      viewmodel.mapTilePath = opts.target;
+    let filePath = `.temp/${fileName}.png`;
 
-      resolve(viewmodel);
+    const stream = fs.createWriteStream(filePath);
+    console.log(new Date(), 'WRITING IMAGE:', filePath);
+
+    stream.on('finish', () => {
+      model.mapTilePath = filePath;
+
+      console.log(new Date(), 'CREATED IMAGE:', filePath);
+
+      resolve(model);
     });
 
-    stream.on('error', (err) => reject(err));
+    stream.on('error', err => reject(err));
 
-    req.pipe(stream);
+    console.log(new Date(), 'REQUESTING IMAGE DATA:', filePath);
+    request.get(model.mapTileUrl).pipe(stream);
   });
-};
 
-const saveOutput = (opts) =>
-  (md) => new Promise((resolve, reject) => {
-    MDtoPDF(opts.pdf)
-      .from.string(md)
-      .to(opts.target, function () {
-        console.log('Created', opts.target);
-        resolve();
+const readJsonData = source =>
+  new Promise((resolve, reject) => {
+    let filePath = `./output/${source}.json`;
+    console.log(new Date(), 'READING JSON:', filePath);
+
+    fs.readFile(filePath, 'utf8', (err, data) => {
+      if (err) {
+        return reject(err);
+      }
+
+      let json = JSON.parse(data);
+
+      resolve(json);
+    });
+  });
+
+const saveJsonData = target => data =>
+  new Promise((resolve, reject) => {
+    let filePath = `./output/${target}.json`;
+    console.log(new Date(), 'WRITING JSON:', filePath);
+
+    fs.writeFile(filePath, JSON.stringify(data, null, '  '), 'utf8', () => {
+      console.log(new Date(), 'CREATED JSON:', filePath);
+
+      resolve(data);
+    });
+  });
+
+const savePdfOutput = target => data =>
+  new Promise((resolve, reject) => {
+    let filePath = `./output/${target}.pdf`;
+    console.log(new Date(), 'WRITING PDF:', filePath);
+
+    MDtoPDF({
+      paperFormat: 'A4',
+      paperOrientation: 'portrait',
+      cssPath: './templates/pdf.css',
+      runningsPath: './templates/runnings.js',
+    })
+      .from.string(data).to(filePath, () => {
+        console.log(new Date(), 'CREATED PDF:', filePath);
+        resolve(data);
       });
   });
 
-const fromJSON = opts =>
-  // read in data
-  getJsonData({
-    source: `./output/${opts.offenderId.replace('/', '-')}-${opts.reportFrom.format()}-${opts.reportTo.format()}.json`,
-  })
-  .then(generateViewModel({ /* opts */ }))
-  .then(generateMapImagery({
-    target: `.temp/${opts.offenderId.replace('/', '-')}-${opts.reportFrom.format()}-${opts.reportTo.format()}.png`,
-  }))
-  // apply template transform
-  .then(generateReport({
-    source: `./templates/trail-report.md`,
-  }))
-  // return output
-  .then(saveOutput({
-    target: `./output/${opts.offenderId.replace('/', '-')}-${opts.reportFrom.format()}-${opts.reportTo.format()}.pdf`,
-    pdf: { paperFormat: 'A4', paperOrientation: 'portrait' }
-  }))
-  .catch((err) => console.error(err));
-
 let offenderId = process.argv[2];
-let reportFrom = process.argv[3];
-let reportTo = process.argv[4];
+let reportFrom = moment(process.argv[3]);
+let reportTo = moment(process.argv[4]);
 if (!offenderId || !reportFrom || !reportTo) {
-  console.log('***                                                                            ***');
-  console.log('*   USAGE: npm run generate-witness-statement 00/123456X {from date} {to date}   *');
-  console.log('***                                                                            ***');
+  console.log('***                                                                       ***');
+  console.log('*   USAGE: npm run generate-trail-report 00/123456X {from date} {to date}   *');
+  console.log('***                                                                       ***');
 
   process.exit();
 }
 
-fromJSON({ offenderId, reportFrom: moment(reportFrom), reportTo: moment(reportTo) });
+// read in data
+readJsonData(offenderId.replace('/', '-'))
+  .then(addReportDetails({ reportFrom, reportTo }))
+  // transform into dataset
+  .then(extractSubjectDetails({ /* options */ }))
+  .then(helpers.extractTrailPoints({ reportFrom, reportTo }))
+  .then(extractZoneList({ reportFrom, reportTo }))
+  .then(extractEventList({ reportFrom, reportTo }))
+  .then(helpers.extractMapBounds({ /* options */ }))
+  .then(helpers.generateMapTileUrl({ /* options */ }))
+  // retrieve imagery
+  .then(retrieveMapImagery(`${offenderId.replace('/', '-')}-${reportFrom.format(SORTABLE_DATE_FORMAT)}-${reportTo.format(SORTABLE_DATE_FORMAT)}`))
+  .then(saveJsonData(`${offenderId.replace('/', '-')}|trail-report|${reportFrom.format(SORTABLE_DATE_FORMAT)}-${reportTo.format(SORTABLE_DATE_FORMAT)}`))
+  // apply template transform
+  .then(generateTrailReport('trail-report'))
+  // return output
+  .then(savePdfOutput(`${offenderId.replace('/', '-')}|trail-report|${reportFrom.format(SORTABLE_DATE_FORMAT)}-${reportTo.format(SORTABLE_DATE_FORMAT)}`))
+  .catch((err) => console.error(err));

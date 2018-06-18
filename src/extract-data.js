@@ -37,16 +37,55 @@ const getPoints = (db, id) => {
   return points;
 };
 
+let zone_types = [];
 const getZones = (db, id) => {
-  let zones = db.prepare(
+  let temp = {};
+
+  db.prepare(
     `SELECT * FROM zones WHERE offender_id='${id}'`
   ).all()
-    .map(z => {
+    .forEach(z => {
       z.version_start = moment(z.version_start, EXTRACT_DATE_FORMAT);
       z.version_end = moment(z.version_end, EXTRACT_DATE_FORMAT);
+      z.lon = z.lon1;
+      z.lat = z.lat1;
 
-      return z;
+      delete z.lon1;
+      delete z.lat1;
+      delete z.lon2;
+      delete z.lat2;
+      delete z.lon3;
+      delete z.lat3;
+      delete z.lon4;
+      delete z.lat4;
+
+      if (z.zone_type === 'N') {
+        if (!temp[z.zone_id + '_' + z.version_no]) {
+          z.points = [{ latitude: z.lat, longitude: z.lon }];
+
+          delete z.lat;
+          delete z.lon;
+
+          temp[z.zone_id + '_' + z.version_no] = z;
+          return;
+        }
+
+        temp[z.zone_id + '_' + z.version_no].points.push({ latitude: z.lat, longitude: z.lon });
+        return;
+      }
+
+      if (!temp[z.zone_id + '_' + z.version_no]) {
+        temp[z.zone_id + '_' + z.version_no] = z;
+        return;
+      }
+
+      console.log(z);
     });
+
+  let zones = [];
+  for (var zone_id in temp) {
+    zones.push(temp[zone_id]);
+  }
 
   zones.sort((a,b) => a.version_start.diff(b.version_start));
 
@@ -60,8 +99,24 @@ const getTimeFrames = (db, id) => {
     .map(t => {
       t.version_start = moment(t.version_start, EXTRACT_DATE_FORMAT);
       t.version_end = moment(t.version_end, EXTRACT_DATE_FORMAT);
-      t.frame_start_time = moment(t.frame_start_time, FRAME_DATE_FORMAT);
-      t.frame_end_time = moment(t.frame_end_time, FRAME_DATE_FORMAT);
+
+      if (t.frame_type === 'Recurring') {
+        let frameStartTime = moment(t.frame_start_time, FRAME_DATE_FORMAT);
+        t.frame_start_time = {
+          dayOfWeek: frameStartTime.format('E'),
+          time: frameStartTime.format('HH:mm:ss'),
+        };
+        let frameEndTime = moment(t.frame_end_time, FRAME_DATE_FORMAT);
+        t.frame_end_time = {
+          dayOfWeek: frameEndTime.format('E'),
+          time: frameEndTime.format('HH:mm:ss'),
+        };
+      }
+
+      if (t.frame_type === 'Calendary') {
+        t.frame_start_time = moment(t.frame_start_time, EXTRACT_DATE_FORMAT).format();
+        t.frame_end_time = moment(t.frame_end_time, EXTRACT_DATE_FORMAT).format();
+      }
 
       return t;
     });
@@ -128,9 +183,10 @@ const getModel = id => db =>
 const saveJsonData = target => data =>
   new Promise((resolve, reject) => {
     let filePath = `./output/${target}.json`;
+    console.log(new Date(), 'WRITING JSON:', filePath);
 
     fs.writeFile(filePath, JSON.stringify(data, null, '  '), 'utf8', () => {
-      console.log(`CREATED FILE: ${filePath}`);
+      console.log(new Date(), 'CREATED JSON:', filePath);
 
       resolve(data);
     });
