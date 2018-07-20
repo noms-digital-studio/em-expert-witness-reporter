@@ -49,102 +49,6 @@ const toSpeedCategory = x => {
 const getStatus = (datetime, records) =>
   ((records || []).filter(x => moment(x.datetime).diff(datetime) === 0)[0] || {}).status ? 1 : 0;
 
-const recordEvent = (record, status, json) =>
-  record.push({
-    offenderId: json.offender_id,
-    serialNumber: json.receiver_sn,
-    status,
-    datetime: moment(json.event_time),
-    action: (json.action_time) ? {
-      datetime: moment(json.action_time),
-      sequenceNo: json.action_seq_no,
-      userId: json.action_user,
-      status: json.action_status,
-      comment: json.action_comment,
-    } : undefined,
-    warning: (json.warning_date) ? {
-      number: json.warning_number,
-      datetime: moment(json.warning_date),
-      printed: json.is_warning_printed,
-      sent: json.is_warning_sent,
-      responseTimeMet: json.response_time_met,
-      user: json.user_name,
-      userId: json.user_id,
-    } : undefined,
-  });
-
-const extractKeyEvents = opts => model => {
-  model = Object.assign({}, model, {
-    movementRecord: [],
-    strapTamperRecord: [],
-    bodyTamperRecord: [],
-    exclusionZoneViolation: [],
-    inclusionZoneViolation: [],
-    trackerInCharger: [],
-    homeCurfewViolation: [],
-  });
-
-  model.serialNumber = (model.events[0] || {}).receiver_sn;
-
-  model.events.forEach(json => {
-    switch (json.event_code) {
-      // strapTamperRecord
-      case 'P59':
-        recordEvent(model.strapTamperRecord, true, json);
-        break;
-      case 'P60':
-        recordEvent(model.strapTamperRecord, false, json);
-        break;
-
-      // bodyTamperRecord
-      case 'P50':
-        recordEvent(model.bodyTamperRecord, true, json);
-        break;
-
-      // inclusionZoneViolation
-      case 'P67':
-        recordEvent(model.inclusionZoneViolation, true, json);
-        break;
-      case 'P68':
-        recordEvent(model.inclusionZoneViolation, false, json);
-        break;
-
-      // exclusionZoneViolation
-      case 'P69':
-        recordEvent(model.exclusionZoneViolation, true, json);
-        break;
-      case 'P70':
-        recordEvent(model.exclusionZoneViolation, false, json);
-        break;
-
-      // trackerInCharger
-      case 'P61':
-        recordEvent(model.trackerInCharger, true, json);
-        break;
-      case 'P62':
-        recordEvent(model.trackerInCharger, false, json);
-        break;
-
-      // homeCurfewViolation
-      case 'P53':
-        recordEvent(model.homeCurfewViolation, true, json);
-        break;
-      case 'P54':
-        recordEvent(model.homeCurfewViolation, false, json);
-        break;
-    }
-  });
-
-  model.strapTamperRecord.sort((a,b) => a.datetime.diff(b.datetime));
-  model.bodyTamperRecord.sort((a,b) => a.datetime.diff(b.datetime));
-  model.inclusionZoneViolation.sort((a,b) => a.datetime.diff(b.datetime));
-  model.exclusionZoneViolation.sort((a,b) => a.datetime.diff(b.datetime));
-  model.trackerInCharger.sort((a,b) => a.datetime.diff(b.datetime));
-  model.homeCurfewViolation.sort((a,b) => a.datetime.diff(b.datetime));
-
-  return model;
-};
-
 const generateTrailZoneList = opts => model =>
   model.trailZoneList.map(x => ({
       'Offender ID': x.offender_id,
@@ -209,9 +113,9 @@ if (!offenderId || !reportFrom || !reportTo) {
 // read in data
 readJsonData(offenderId.replace('/', '-'))
   // transform into dataset
-  .then(extractKeyEvents({ reportFrom, reportTo }))
+  .then(helpers.extractKeyEvents({ reportFrom, reportTo }))
   .then(helpers.extractTrailZoneList({ reportFrom, reportTo }))
   .then(generateTrailZoneList({ reportFrom, reportTo }))
   // return output
-  .then(saveCsvData(`${offenderId.replace('/', '-')}-${reportFrom.format(SORTABLE_DATE_FORMAT)}-${reportTo.format(SORTABLE_DATE_FORMAT)}`))
+  .then(saveCsvData(`MDS01|TaggingData|${reportFrom.format(SORTABLE_DATE_FORMAT)}-${reportTo.format(SORTABLE_DATE_FORMAT)}`/*`${offenderId.replace('/', '-')}-${reportFrom.format(SORTABLE_DATE_FORMAT)}-${reportTo.format(SORTABLE_DATE_FORMAT)}`*/))
   .catch((err) => console.error(err));

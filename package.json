@@ -7,7 +7,8 @@
     "extract-data": "node ./src/extract-data.js",
     "generate-trail-zone-list": "node ./src/generate-trail-zone-list.js",
     "generate-trail-report": "node ./src/generate-trail-report.js",
-    "generate-witness-statement": "node ./src/generate-witness-statement.js"
+    "generate-witness-statement": "node ./src/generate-witness-statement.js",
+    "generate-expert-witness-statement": "node ./src/generate-expert-witness-statement.js"
   },
   "author": "Matt Smith<matt.smith@digital.justcice.gov.uk>",
   "license": "MIT",

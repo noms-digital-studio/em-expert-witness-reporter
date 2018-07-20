@@ -207,28 +207,34 @@ let offenderId = process.argv[2];
 let reportFrom = moment(process.argv[3]);
 let reportTo = moment(process.argv[4]);
 if (!offenderId || !reportFrom || !reportTo) {
-  console.log('***                                                                       ***');
-  console.log('*   USAGE: npm run generate-trail-report 00/123456X {from date} {to date}   *');
-  console.log('***                                                                       ***');
+  console.log('***                                                                                   ***');
+  console.log('*   USAGE: npm run generate-expert-witness-statement 00/123456X {from date} {to date}   *');
+  console.log('***                                                                                   ***');
 
   process.exit();
+}
+
+const includeSignatureImageUrl = opts => model => {
+  model.signatureImagePath = opts.path;
+
+  return model;
 }
 
 // read in data
 readJsonData(offenderId.replace('/', '-'))
   .then(addReportDetails({ reportFrom, reportTo }))
   // transform into dataset
+  .then(helpers.extractKeyEvents({ reportFrom, reportTo }))
   .then(extractSubjectDetails({ /* options */ }))
   .then(helpers.extractTrailPoints({ reportFrom, reportTo }))
-  .then(extractZoneList({ reportFrom, reportTo }))
-  .then(extractEventList({ reportFrom, reportTo }))
   .then(helpers.extractMapBounds({ /* options */ }))
   .then(helpers.generateMapTileUrl({ /* options */ }))
+  .then(includeSignatureImageUrl({ path: './templates/signatureImage.jpg' }))
   // retrieve imagery
   .then(retrieveMapImagery(`${offenderId.replace('/', '-')}-${reportFrom.format(SORTABLE_DATE_FORMAT)}-${reportTo.format(SORTABLE_DATE_FORMAT)}`))
-  .then(saveJsonData(`${offenderId.replace('/', '-')}|trail-report|${reportFrom.format(SORTABLE_DATE_FORMAT)}-${reportTo.format(SORTABLE_DATE_FORMAT)}`))
+  .then(saveJsonData(`${offenderId.replace('/', '-')}|expert-witness-statement|${reportFrom.format(SORTABLE_DATE_FORMAT)}-${reportTo.format(SORTABLE_DATE_FORMAT)}`))
   // apply template transform
-  .then(generateTrailReport('trail-report'))
+  .then(generateTrailReport('expert-witness-statement'))
   // return output
-  .then(savePdfOutput(`MDS02|TrailReport|${reportFrom.format(SORTABLE_DATE_FORMAT)}-${reportTo.format(SORTABLE_DATE_FORMAT)}`/*`${offenderId.replace('/', '-')}|trail-report|${reportFrom.format(SORTABLE_DATE_FORMAT)}-${reportTo.format(SORTABLE_DATE_FORMAT)}`*/))
+  .then(savePdfOutput(`ExpertWitnessStatement|${reportFrom.format(SORTABLE_DATE_FORMAT)}-${reportTo.format(SORTABLE_DATE_FORMAT)}`/*`${offenderId.replace('/', '-')}|expert-witness-statement|${reportFrom.format(SORTABLE_DATE_FORMAT)}-${reportTo.format(SORTABLE_DATE_FORMAT)}`*/))
   .catch((err) => console.error(err));

@@ -168,7 +168,7 @@ const getEvents = (db, id) => {
   return events;
 };
 
-const getDB = dbPath =>
+const getDB = dbPath => () =>
   Promise.resolve(new Database(dbPath, { readonly: true, fileMustExist: true }));
 
 const getModel = id => db =>
@@ -185,10 +185,29 @@ const saveJsonData = target => data =>
     let filePath = `./output/${target}.json`;
     console.log(new Date(), 'WRITING JSON:', filePath);
 
-    fs.writeFile(filePath, JSON.stringify(data, null, '  '), 'utf8', () => {
+    fs.writeFile(filePath, JSON.stringify(data, null, '  '), 'utf8', err => {
+      if (err) {
+        return reject(err);
+      }
+
       console.log(new Date(), 'CREATED JSON:', filePath);
 
       resolve(data);
+    });
+  });
+
+const ifNotExistingJsonData = target =>
+  new Promise((resolve, reject) => {
+    let filePath = `./output/${target}.json`;
+
+    fs.access(filePath, fs.constants.F_OK, err => {
+      if (err) {
+        return resolve();
+      }
+
+      console.log(new Date(), 'SKIPPING JSON:', filePath);
+
+      reject();
     });
   });
 
@@ -201,7 +220,9 @@ if (!offenderId) {
   process.exit();
 }
 
-getDB('./data/electronic_monitoring.db')
+ifNotExistingJsonData(`${offenderId.replace('/', '-')}`)
+  .catch(() => {})
+  .then(getDB('./data/electronic_monitoring.db'))
   .then(getModel(offenderId))
   .then(saveJsonData(`${offenderId.replace('/', '-')}`))
   .catch((err) => console.error(err));

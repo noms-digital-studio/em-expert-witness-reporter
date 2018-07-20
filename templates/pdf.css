@@ -55,3 +55,7 @@ table > th,
 table > td {
   background-color: #fdfdfe;
 }
+
+img[src='./templates/signatureImage.jpg'] {
+  width: 100px;
+}
